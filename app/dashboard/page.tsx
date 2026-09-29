@@ -4,7 +4,9 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 type Profile={user_id:string;first_name:string|null;last_name:string|null;email:string;mobile:string|null;status:string;role:string;villa_id:number|null;villas?:{community:string;villa_number:number}|null}
 type Court={id:number;display_name:string}
-type CourtRelation={display_name:string}\ntype Booking={id:string;booking_date:string;start_hour:number;duration_hours:number;starts_at:string;court_id:number;courts?:CourtRelation|CourtRelation[]|null}\nfunction courtName(c:Booking['courts']){return Array.isArray(c)?c[0]?.display_name:c?.display_name}
+type CourtRelation={display_name:string}
+type Booking={id:string;booking_date:string;start_hour:number;duration_hours:number;starts_at:string;court_id:number;courts?:CourtRelation|CourtRelation[]|null}
+function courtName(c:Booking['courts']){return Array.isArray(c)?c[0]?.display_name:c?.display_name}
 const hours=Array.from({length:15},(_,i)=>i+7)
 function dstr(d:Date){return d.toISOString().slice(0,10)}
 export default function Dashboard(){const router=useRouter();const [profile,setProfile]=useState<Profile|null>(null);const [courts,setCourts]=useState<Court[]>([]);const [bookings,setBookings]=useState<Booking[]>([]);const [busy,setBusy]=useState<{court_id:number;slot_start:string}[]>([]);const [date,setDate]=useState(dstr(new Date()));const [duration,setDuration]=useState(1);const [message,setMessage]=useState('');const [loading,setLoading]=useState(true)
