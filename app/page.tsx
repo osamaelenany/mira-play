@@ -2,6 +2,7 @@
 import { FormEvent, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { Brand } from '@/components/Branding'
 export default function Home(){
  const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [error,setError]=useState(''); const [loading,setLoading]=useState(false); const router=useRouter();
  async function login(e:FormEvent){e.preventDefault();setLoading(true);setError('');const supabase=createClient();const {error}=await supabase.auth.signInWithPassword({email,password});setLoading(false);if(error){setError(error.message);return}router.push('/dashboard');router.refresh()}
