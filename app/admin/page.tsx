@@ -84,11 +84,58 @@ export default function Admin(){
  async function saveResident(e:FormEvent<HTMLFormElement>){e.preventDefault();if(!selected)return;const f=new FormData(e.currentTarget);const s=createClient();const {error}=await s.from('profiles').update({first_name:String(f.get('first_name')),last_name:String(f.get('last_name')),mobile:String(f.get('mobile'))}).eq('user_id',selected.user_id);setMsg(error?error.message:'Resident profile updated.');if(!error){setSelected(null);await load()}}
  async function reviewReport(id:string,status:'confirmed'|'dismissed'){const s=createClient();const {error}=await s.rpc('admin_review_no_show',{p_report_id:id,p_status:status,p_note:null});setMsg(error?error.message:`Report ${status}.`);await load()}
  async function toggleCourt(id:number,active:boolean){const s=createClient();const {error}=await s.from('courts').update({active}).eq('id',id);setMsg(error?error.message:`Court ${active?'opened':'disabled'}.`);await load()}
- async function addClosure(e:FormEvent<HTMLFormElement>){e.preventDefault();const f=new FormData(e.currentTarget);const s=createClient();const {data:{user}}=await s.auth.getUser();const start=String(f.get('starts_at')),end=String(f.get('ends_at'));const {error}=await s.from('court_closures').insert({court_id:Number(f.get('court_id')),starts_at:new Date(start).toISOString(),ends_at:new Date(end).toISOString(),reason:String(f.get('reason')),created_by:user?.id});setMsg(error?error.message:'Court closure added.');if(!error){e.currentTarget.reset();await load()}}
+ async function addClosure(e:FormEvent<HTMLFormElement>){
+  e.preventDefault()
+  const form=e.currentTarget
+  const f=new FormData(form)
+  const s=createClient()
+  const {data:{user}}=await s.auth.getUser()
+  const start=String(f.get('starts_at')),end=String(f.get('ends_at'))
+  if(!start||!end){setMsg('Please choose closure start and end.');return}
+  const startIso=new Date(`${start}:00+04:00`).toISOString()
+  const endIso=new Date(`${end}:00+04:00`).toISOString()
+  if(new Date(endIso)<=new Date(startIso)){setMsg('Closure end must be after the start.');return}
+  const {error}=await s.from('court_closures').insert({court_id:Number(f.get('court_id')),starts_at:startIso,ends_at:endIso,reason:String(f.get('reason')),created_by:user?.id})
+  setMsg(error?error.message:'Court closure added.')
+  if(!error){form.reset();await load()}
+}
  async function removeClosure(id:string){const s=createClient();const {error}=await s.from('court_closures').delete().eq('id',id);setMsg(error?error.message:'Closure removed.');await load()}
- async function addNews(e:FormEvent<HTMLFormElement>){e.preventDefault();const f=new FormData(e.currentTarget);const s=createClient();const {data:{user}}=await s.auth.getUser();const {error}=await s.from('news_updates').insert({title:String(f.get('title')),body:String(f.get('body')),published:true,published_at:new Date().toISOString(),created_by:user?.id});setMsg(error?error.message:'News update published.');if(!error){e.currentTarget.reset();await load()}}
+ async function addNews(e:FormEvent<HTMLFormElement>){
+  e.preventDefault();setBusy(true)
+  const form=e.currentTarget
+  const f=new FormData(form)
+  const s=createClient()
+  const {data:{user}}=await s.auth.getUser()
+  const image=f.get('image') as File|null
+  const files=f.getAll('attachments').filter((x):x is File=>x instanceof File&&x.size>0)
+  let imagePath:string|null=null
+  const attachments:any[]=[]
+  if(image&&image.size>0){
+    const ext=image.name.split('.').pop()||'jpg'
+    imagePath=`images/${crypto.randomUUID()}.${ext}`
+    const {error}=await s.storage.from('news-media').upload(imagePath,image)
+    if(error){setBusy(false);setMsg(error.message);return}
+  }
+  for(const file of files){
+    const ext=file.name.split('.').pop()||'bin'
+    const path=`attachments/${crypto.randomUUID()}.${ext}`
+    const {error}=await s.storage.from('news-media').upload(path,file)
+    if(error){setBusy(false);setMsg(error.message);return}
+    attachments.push({path,name:file.name,type:file.type,size:file.size})
+  }
+  const {error}=await s.from('news_updates').insert({title:String(f.get('title')),body:String(f.get('body')),image_path:imagePath,attachments,published:true,published_at:new Date().toISOString(),created_by:user?.id})
+  setBusy(false);setMsg(error?error.message:'News update published.')
+  if(!error){form.reset();await load()}
+}
  async function toggleNews(id:string,published:boolean){const s=createClient();const {error}=await s.from('news_updates').update({published,published_at:published?new Date().toISOString():null,updated_at:new Date().toISOString()}).eq('id',id);setMsg(error?error.message:(published?'Published.':'Unpublished.'));await load()}
- async function deleteNews(id:string){const s=createClient();const {error}=await s.from('news_updates').delete().eq('id',id);setMsg(error?error.message:'Update deleted.');await load()}
+ async function deleteNews(id:string){
+  const s=createClient()
+  const item=news.find(n=>n.id===id)
+  const paths=[...(item?.image_path?[item.image_path]:[]),...((item?.attachments||[]).map((a:any)=>a.path).filter(Boolean))]
+  const {error}=await s.from('news_updates').delete().eq('id',id)
+  if(!error&&paths.length)await s.storage.from('news-media').remove(paths)
+  setMsg(error?error.message:'Update deleted.');await load()
+}
  async function saveSettings(e:FormEvent<HTMLFormElement>){e.preventDefault();const f=new FormData(e.currentTarget);const s=createClient();const {data:{user}}=await s.auth.getUser();const changes={app_name:String(f.get('app_name')),primary_color:String(f.get('primary_color')),accent_color:String(f.get('accent_color')),surface_color:String(f.get('surface_color')),admin_notification_email:String(f.get('admin_notification_email')),email_notifications_enabled:f.get('email_notifications_enabled')==='on',updated_at:new Date().toISOString(),updated_by:user?.id};const {error}=await s.from('app_settings').update(changes).eq('id',1);setMsg(error?error.message:'Settings saved.');if(!error){await reloadBranding();await load()}}
  async function uploadLogo(file:File){setBusy(true);const s=createClient();const ext=file.name.split('.').pop()||'png';const path=`logo-${Date.now()}.${ext}`;const {error}=await s.storage.from('branding').upload(path,file,{upsert:true});if(error){setMsg(error.message);setBusy(false);return}const {data}=s.storage.from('branding').getPublicUrl(path);const {data:{user}}=await s.auth.getUser();const {error:u}=await s.from('app_settings').update({logo_url:data.publicUrl,updated_at:new Date().toISOString(),updated_by:user?.id}).eq('id',1);setMsg(u?u.message:'Logo updated.');setBusy(false);if(!u){await reloadBranding();await load()}}
  async function inviteUser(e:FormEvent<HTMLFormElement>){e.preventDefault();setBusy(true);const f=new FormData(e.currentTarget);const s=createClient();const {data,error}=await s.functions.invoke('admin-invite-user',{body:{email:String(f.get('email')),first_name:String(f.get('first_name')),last_name:String(f.get('last_name')),mobile:String(f.get('mobile')),community:String(f.get('community')),villa_number:Number(f.get('villa_number')),role:String(f.get('role')),redirect_to:location.origin}});setBusy(false);setMsg(error?error.message:data?.error||'Invitation sent.');if(!error&&!data?.error){e.currentTarget.reset();await load()}}
@@ -121,12 +168,12 @@ export default function Admin(){
 
   {tab==='courts'&&<>
    <div className="courtAdminGrid">{courts.map(c=><div className="card" key={c.id}><div className="sectionHead"><div><h3>{c.display_name}</h3><span className="tag">{c.area}</span></div><span className={c.active?'statusGood':'statusOff'}>{c.active?'Open':'Disabled'}</span></div><button className={c.active?'btn danger':'btn'} onClick={()=>toggleCourt(c.id,!c.active)}>{c.active?'Disable court':'Enable court'}</button></div>)}</div>
-   <div className="grid2" style={{marginTop:16}}><form className="card stack" onSubmit={addClosure}><h2>Add closure / maintenance</h2><div className="field"><label>Court</label><select name="court_id">{courts.map(c=><option key={c.id} value={c.id}>{c.display_name}</option>)}</select></div><div className="field"><label>Starts</label><input name="starts_at" type="datetime-local" required/></div><div className="field"><label>Ends</label><input name="ends_at" type="datetime-local" required/></div><div className="field"><label>Reason</label><input name="reason" required placeholder="Maintenance"/></div><button className="btn">Add closure</button></form><section className="card"><h2>Closures</h2>{closures.length?closures.map(cl=><div className="booking" key={cl.id}><div><strong>{relationName(cl.courts,'display_name')}</strong><div className="muted">{shortDate(cl.starts_at)} {time(cl.starts_at)} → {shortDate(cl.ends_at)} {time(cl.ends_at)}</div><div>{cl.reason}</div></div><button className="btn danger" onClick={()=>removeClosure(cl.id)}>Remove</button></div>):<p className="muted">No closures.</p>}</section></div>
+   <div className="grid2" style={{marginTop:16}}><form className="card stack" onSubmit={addClosure}><h2>Add closure / maintenance</h2><div className="field"><label>Court</label><select name="court_id">{courts.map(c=><option key={c.id} value={c.id}>{c.display_name}</option>)}</select></div><div className="field"><label>Starts (Dubai time)</label><input name="starts_at" type="datetime-local" required/></div><div className="field"><label>Ends (Dubai time)</label><input name="ends_at" type="datetime-local" required/></div><div className="field"><label>Reason</label><input name="reason" required placeholder="Maintenance"/></div><button className="btn">Add closure</button></form><section className="card"><h2>Closures</h2>{closures.length?closures.map(cl=><div className="booking" key={cl.id}><div><strong>{relationName(cl.courts,'display_name')}</strong><div className="muted">{shortDate(cl.starts_at)} {time(cl.starts_at)} → {shortDate(cl.ends_at)} {time(cl.ends_at)}</div><div>{cl.reason}</div></div><button className="btn danger" onClick={()=>removeClosure(cl.id)}>Remove</button></div>):<p className="muted">No closures.</p>}</section></div>
   </>}
 
   {tab==='reports'&&<section className="card"><h2>No-show reports</h2>{reports.length?reports.map(r=><ReportRow key={r.id} r={r} profiles={profiles} actions={r.status==='pending'?<><button className="btn" onClick={()=>reviewReport(r.id,'confirmed')}>Confirm</button><button className="btn secondary" onClick={()=>reviewReport(r.id,'dismissed')}>Dismiss</button></>:<span className="pill">{r.status}</span>}/>):<p className="muted">No reports.</p>}</section>}
 
-  {tab==='news'&&<div className="grid2"><form className="card stack" onSubmit={addNews}><h2>Publish news / update</h2><div className="field"><label>Title</label><input name="title" maxLength={140} required/></div><div className="field"><label>Message</label><textarea name="body" rows={7} maxLength={3000} required/></div><button className="btn">Publish</button></form><section className="card"><h2>Published updates</h2>{news.length?news.map(n=><div className="newsAdmin" key={n.id}><div><strong>{n.title}</strong><p>{n.body}</p><span className="tag">{n.published?'Published':'Draft'}</span></div><div className="row"><button className="btn secondary" onClick={()=>toggleNews(n.id,!n.published)}>{n.published?'Unpublish':'Publish'}</button><button className="btn danger" onClick={()=>deleteNews(n.id)}>Delete</button></div></div>):<p className="muted">No updates.</p>}</section></div>}
+  {tab==='news'&&<div className="grid2"><form className="card stack" onSubmit={addNews}><h2>Publish news / update</h2><div className="field"><label>Title</label><input name="title" maxLength={140} required/></div><div className="field"><label>Message</label><textarea name="body" rows={7} maxLength={3000} required/></div><div className="field"><label>Image (optional)</label><input name="image" type="file" accept="image/jpeg,image/png,image/webp"/></div><div className="field"><label>Attachments (optional)</label><input name="attachments" type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf,.doc,.docx,.xls,.xlsx,.txt"/><span className="tag">Up to 10 MB per file</span></div><button className="btn" disabled={busy}>{busy?'Publishing…':'Publish'}</button></form><section className="card"><h2>Published updates</h2>{news.length?news.map(n=><div className="newsAdmin" key={n.id}><div><strong>{n.title}</strong><p>{n.body}</p><div className="row"><span className="tag">{n.published?'Published':'Draft'}</span>{n.image_path&&<span className="tag">Image</span>}{(n.attachments||[]).length>0&&<span className="tag">{n.attachments.length} attachment{n.attachments.length>1?'s':''}</span>}</div></div><div className="row"><button className="btn secondary" onClick={()=>toggleNews(n.id,!n.published)}>{n.published?'Unpublish':'Publish'}</button><button className="btn danger" onClick={()=>deleteNews(n.id)}>Delete</button></div></div>):<p className="muted">No updates.</p>}</section></div>}
 
   {tab==='settings'&&<div className="stack">
    <div className="grid2">
