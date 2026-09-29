@@ -8,8 +8,6 @@ export type BrandingSettings={
   accent_color:string
   surface_color:string
   logo_url:string|null
-  admin_notification_email:string|null
-  email_notifications_enabled:boolean
 }
 
 const defaults:BrandingSettings={
@@ -18,8 +16,6 @@ const defaults:BrandingSettings={
   accent_color:'#d8b46a',
   surface_color:'#f6f4ee',
   logo_url:null,
-  admin_notification_email:null,
-  email_notifications_enabled:true
 }
 
 const BrandingContext=createContext<{settings:BrandingSettings;reload:()=>Promise<void>}>({settings:defaults,reload:async()=>{}})
@@ -28,7 +24,7 @@ export function BrandingProvider({children}:{children:React.ReactNode}){
   const [settings,setSettings]=useState<BrandingSettings>(defaults)
   async function reload(){
     const s=createClient()
-    const {data}=await s.from('app_settings').select('app_name,primary_color,accent_color,surface_color,logo_url,admin_notification_email,email_notifications_enabled').eq('id',1).maybeSingle()
+    const {data}=await s.from('branding_settings').select('app_name,primary_color,accent_color,surface_color,logo_url').maybeSingle()
     if(data)setSettings({...defaults,...data} as BrandingSettings)
   }
   useEffect(()=>{reload()},[])
